@@ -165,7 +165,7 @@
             // groupBoxProcess
             // 
             groupBoxProcess.Controls.Add(flowLayoutProcess);
-            groupBoxProcess.Location = new Point(367, 9);
+            groupBoxProcess.Location = new Point(364, 8);
             groupBoxProcess.Name = "groupBoxProcess";
             groupBoxProcess.Size = new Size(314, 60);
             groupBoxProcess.TabIndex = 1;
@@ -206,7 +206,7 @@
             // groupBoxSettings
             // 
             groupBoxSettings.Controls.Add(flowLayoutSettings);
-            groupBoxSettings.Location = new Point(1030, 11);
+            groupBoxSettings.Location = new Point(1024, 8);
             groupBoxSettings.Name = "groupBoxSettings";
             groupBoxSettings.Size = new Size(294, 60);
             groupBoxSettings.TabIndex = 2;
@@ -248,7 +248,7 @@
             // groupBoxExport
             // 
             groupBoxExport.Controls.Add(flowLayoutExport);
-            groupBoxExport.Location = new Point(687, 11);
+            groupBoxExport.Location = new Point(681, 8);
             groupBoxExport.Name = "groupBoxExport";
             groupBoxExport.Size = new Size(337, 60);
             groupBoxExport.TabIndex = 3;
@@ -336,7 +336,7 @@
             tabImage.Location = new Point(4, 24);
             tabImage.Name = "tabImage";
             tabImage.Padding = new Padding(3);
-            tabImage.Size = new Size(1136, 428);
+            tabImage.Size = new Size(1136, 453);
             tabImage.TabIndex = 1;
             tabImage.Text = "Картинка";
             tabImage.UseVisualStyleBackColor = true;
@@ -349,7 +349,7 @@
             panelImageScroll.Dock = DockStyle.Fill;
             panelImageScroll.Location = new Point(3, 3);
             panelImageScroll.Name = "panelImageScroll";
-            panelImageScroll.Size = new Size(1130, 422);
+            panelImageScroll.Size = new Size(1130, 447);
             panelImageScroll.TabIndex = 0;
             // 
             // picturePreview

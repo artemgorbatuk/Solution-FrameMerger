@@ -1,21 +1,17 @@
-using System.Drawing.Imaging;
-using System.Drawing.Text;
+using Client.WinForms.Services;
 using System.Drawing.Drawing2D;
-using System.Linq;
-using System.Text;
-using System.Text.RegularExpressions;
-using Tesseract;
-using System.IO;
+using MessageType = Client.WinForms.Services.MessageType;
 
 namespace Client.WinForms
 {
     public partial class FormMain : Form
     {
-        private List<(PictureBox Picture, Label Label, Button Delete)> screenshotItems = new List<(PictureBox, Label, Button)>();
-        private int screenshotSpacing = 10;
-        private int baseScreenshotWidth = 180;
-        private int baseScreenshotHeight = 120;
-        private Padding panelPadding = new Padding(10);
+        private static readonly List<(PictureBox Picture, Label Label, Button Delete)> value = [];
+        private readonly List<(PictureBox Picture, Label Label, Button Delete)> frameItems = value;
+        private readonly int frameSpacing = 10;
+        private readonly int baseFrameWidth = 180;
+        private readonly int baseFrameHeight = 120;
+        private Padding panelPadding = new(10);
         private readonly int exportImageWidth = 1000;
         private readonly int exportPadding = 20;
         private readonly int exportFontSize = 14;
@@ -24,23 +20,37 @@ namespace Client.WinForms
         private int? dragInsertIndex = null; // индекс вставки во время DragOver
         private bool isEditEnabled = false;
 
+        // Сервисы
+        private readonly ITextProcessingService _textProcessingService;
+        private readonly IImageRenderingService _imageRenderingService;
+        private readonly IOcrService _ocrService;
+        private readonly IFileService _fileService;
+        private readonly IStatusMessageService _statusMessageService;
+
         public FormMain()
         {
             InitializeComponent();
-            InitializeScreenshotPanel();
-            InitializeOcrUi();
+            
+            // Инициализация сервисов
+            _textProcessingService = new TextProcessingService();
+            _imageRenderingService = new ImageRenderingService();
+            _ocrService = new OcrService();
+            _fileService = new FileService();
+            _statusMessageService = new StatusMessageService();
+            
+            InitializeFramePanel();
         }
 
-        private void InitializeScreenshotPanel()
+        private void InitializeFramePanel()
         {
-            // Настройка панели для скриншотов
+            // Настройка панели для кадров
             panelScreenshots.AutoScroll = true;
             panelScreenshots.BackColor = Color.LightGray;
             panelScreenshots.BorderStyle = BorderStyle.FixedSingle;
             panelScreenshots.Padding = panelPadding;
 
             // Перелайаут при изменении размеров, чтобы не появлялась горизонтальная прокрутка
-            panelScreenshots.Resize += (_, __) => LayoutScreenshots();
+            panelScreenshots.Resize += (_, __) => LayoutFrames();
 
             // Включаем Drag & Drop для перестановки
             panelScreenshots.AllowDrop = true;
@@ -49,17 +59,9 @@ namespace Client.WinForms
             panelScreenshots.DragDrop += PanelScreenshots_DragDrop;
         }
 
-        private void InitializeOcrUi()
+        private void FormMain_Load(object sender, EventArgs e)
         {
-            // Ничего специального тут не требуется: обработчики кнопок ниже
-        }
-
-        public enum MessageType
-        {
-            Info,
-            Success,
-            Warning,
-            Error
+            // Дополнительная инициализация при загрузке формы
         }
 
         private void ShowStatusMessage(string message, MessageType messageType = MessageType.Info)
@@ -70,193 +72,22 @@ namespace Client.WinForms
                 return;
             }
 
-            Color color;
-            string iconSymbol;
-            
-            switch (messageType)
-            {
-                case MessageType.Error:
-                    color = Color.Red;
-                    iconSymbol = "✕"; // X mark
-                    break;
-                case MessageType.Warning:
-                    color = Color.Orange;
-                    iconSymbol = "⚠"; // Warning sign
-                    break;
-                case MessageType.Success:
-                    color = Color.Green;
-                    iconSymbol = "✓"; // Check mark
-                    break;
-                default: // Info
-                    color = Color.Blue;
-                    iconSymbol = "ℹ"; // Information sign
-                    break;
-            }
+            var (color, iconSymbol) = _statusMessageService.GetStatusConfig(messageType);
 
             // Обновляем иконку
             if (statusIconLabel.Image != null)
             {
                 statusIconLabel.Image.Dispose();
             }
-            statusIconLabel.Image = CreateStatusIcon(iconSymbol, color, 22);
+            statusIconLabel.Image = _statusMessageService.CreateStatusIcon(iconSymbol, color, 22);
 
             statusLabel.Text = message;
             statusLabel.ForeColor = color;
         }
 
-        // Старый метод для обратной совместимости
-        private void ShowStatusMessage(string message, Color color)
+        private Button CreateDeleteButton(PictureBox pictureBox)
         {
-            MessageType type = color == Color.Red ? MessageType.Error :
-                              color == Color.Orange ? MessageType.Warning :
-                              color == Color.Green ? MessageType.Success :
-                              MessageType.Info;
-            ShowStatusMessage(message, type);
-        }
-
-        private Bitmap CreateStatusIcon(string symbol, Color foreColor, int size = 16)
-        {
-            Bitmap bmp = new Bitmap(size, size);
-            using (Graphics g = Graphics.FromImage(bmp))
-            {
-                g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
-                g.TextRenderingHint = TextRenderingHint.ClearTypeGridFit;
-                
-                // Прозрачный фон
-                g.Clear(Color.Transparent);
-                
-                // Пробуем несколько шрифтов для лучшей поддержки символов
-                string[] fonts = { "Segoe UI Symbol", "Segoe UI", "Arial Unicode MS", "Arial" };
-                Font? font = null;
-                foreach (string fontName in fonts)
-                {
-                    try
-                    {
-                        font = new Font(fontName, size * 0.85f, FontStyle.Regular, GraphicsUnit.Pixel);
-                        break;
-                    }
-                    catch { }
-                }
-                
-                if (font == null)
-                    font = SystemFonts.DefaultFont;
-                
-                using (font)
-                using (SolidBrush brush = new SolidBrush(foreColor))
-                {
-                    StringFormat format = new StringFormat
-                    {
-                        Alignment = StringAlignment.Center,
-                        LineAlignment = StringAlignment.Center
-                    };
-                    g.DrawString(symbol, font, brush, new RectangleF(0, 0, size, size), format);
-                }
-            }
-            return bmp;
-        }
-
-        public void AddScreenshot(string name)
-        {
-            int contentWidth = GetContentWidth();
-            int contentHeight = GetContentHeight(contentWidth);
-
-            // Создаем PictureBox для скриншота
-            PictureBox pictureBox = new PictureBox
-            {
-                Size = new Size(contentWidth, contentHeight),
-                SizeMode = PictureBoxSizeMode.Zoom,
-                BorderStyle = BorderStyle.FixedSingle,
-                BackColor = Color.White,
-                Location = new Point(panelScreenshots.Padding.Left, panelScreenshots.Padding.Top + screenshotItems.Count * (contentHeight + screenshotSpacing))
-            };
-
-            // Создаем тестовое изображение (заглушка)
-            Bitmap testImage = CreateTestImage(name, contentWidth, contentHeight);
-            pictureBox.Image = testImage;
-
-            // Добавляем подпись
-            Label label = new Label
-            {
-                Text = name,
-                Location = new Point(pictureBox.Left, pictureBox.Bottom + 2),
-                Size = new Size(contentWidth, 15),
-                TextAlign = ContentAlignment.MiddleCenter,
-                Font = new Font("Arial", 8)
-            };
-            label.AutoSize = false;
-
-            // Кнопка удаления
-            Button btnDelete = new Button
-            {
-                Text = string.Empty,
-                Font = new Font("Segoe UI", 13f, FontStyle.Bold, GraphicsUnit.Point),
-                Size = new Size(22, 22),
-                BackColor = Color.LightCoral,
-                ForeColor = Color.White,
-                FlatStyle = FlatStyle.Flat,
-                TabStop = false,
-                TextAlign = ContentAlignment.MiddleCenter,
-                Margin = Padding.Empty,
-                Padding = Padding.Empty
-            };
-            btnDelete.FlatAppearance.BorderSize = 0;
-            btnDelete.Tag = pictureBox; // для поиска элемента при удалении
-            btnDelete.Click += OnDeleteItemClick;
-            btnDelete.Paint += (s, pe) =>
-            {
-                pe.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
-                using var sf = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center };
-                using var f = new Font("Segoe UI", 13f, FontStyle.Bold, GraphicsUnit.Point);
-                using var br = new SolidBrush(Color.White);
-                pe.Graphics.DrawString("×", f, br, new RectangleF(0, 0, ((Control)s!).Width, ((Control)s!).Height), sf);
-            };
-
-            // Добавляем обработчик клика
-            pictureBox.Click += (sender, e) => OnScreenshotClick(name);
-            // Инициируем DnD по нажатию ЛКМ
-            pictureBox.MouseDown += PictureBox_MouseDownStartDrag;
-
-            // Добавляем элементы на панель
-            panelScreenshots.Controls.Add(pictureBox);
-            panelScreenshots.Controls.Add(label);
-            // Крестик размещаем внутри превью, чтобы гарантировать позицию в углу
-            btnDelete.Parent = pictureBox;
-            btnDelete.Anchor = AnchorStyles.Top | AnchorStyles.Right;
-            btnDelete.Location = new Point(pictureBox.Width - btnDelete.Width, 0);
-            pictureBox.Controls.Add(btnDelete);
-            screenshotItems.Add((pictureBox, label, btnDelete));
-
-            // Обновляем размер панели для прокрутки
-            UpdatePanelSize();
-        }
-
-        public void AddScreenshot(Bitmap image, string name)
-        {
-            int contentWidth = GetContentWidth();
-            int contentHeight = GetContentHeight(contentWidth);
-
-            PictureBox pictureBox = new PictureBox
-            {
-                Size = new Size(contentWidth, contentHeight),
-                SizeMode = PictureBoxSizeMode.Zoom,
-                BorderStyle = BorderStyle.FixedSingle,
-                BackColor = Color.White,
-                Location = new Point(panelScreenshots.Padding.Left, panelScreenshots.Padding.Top + screenshotItems.Count * (contentHeight + screenshotSpacing))
-            };
-
-            pictureBox.Image = (Bitmap)image.Clone();
-
-            Label label = new Label
-            {
-                Text = name,
-                Location = new Point(pictureBox.Left, pictureBox.Bottom + 2),
-                Size = new Size(contentWidth, 15),
-                TextAlign = ContentAlignment.MiddleCenter,
-                Font = new Font("Arial", 8),
-                AutoSize = false
-            };
-
-            Button btnDelete = new Button
+            var btnDelete = new Button
             {
                 Text = string.Empty,
                 Font = new Font("Segoe UI", 13f, FontStyle.Bold, GraphicsUnit.Point),
@@ -281,32 +112,77 @@ namespace Client.WinForms
                 pe.Graphics.DrawString("×", f, br, new RectangleF(0, 0, ((Control)s!).Width, ((Control)s!).Height), sf);
             };
 
-            pictureBox.Click += (sender, e) => OnScreenshotClick(name);
-            pictureBox.MouseDown += PictureBox_MouseDownStartDrag;
-
-            panelScreenshots.Controls.Add(pictureBox);
-            panelScreenshots.Controls.Add(label);
+            // Крестик размещаем внутри превью
             btnDelete.Parent = pictureBox;
             btnDelete.Anchor = AnchorStyles.Top | AnchorStyles.Right;
             btnDelete.Location = new Point(pictureBox.Width - btnDelete.Width, 0);
             pictureBox.Controls.Add(btnDelete);
-            screenshotItems.Add((pictureBox, label, btnDelete));
+
+            return btnDelete;
+        }
+
+        private (PictureBox Picture, Label Label, Button Delete) CreateFrameControls(string name, int contentWidth, int contentHeight)
+        {
+            // Создаем PictureBox для кадра
+            var pictureBox = new PictureBox
+            {
+                Size = new Size(contentWidth, contentHeight),
+                SizeMode = PictureBoxSizeMode.Zoom,
+                BorderStyle = BorderStyle.FixedSingle,
+                BackColor = Color.White,
+                Location = new Point(panelScreenshots.Padding.Left, panelScreenshots.Padding.Top + frameItems.Count * (contentHeight + frameSpacing))
+            };
+
+            // Добавляем подпись
+            var label = new Label
+            {
+                Text = name,
+                Location = new Point(pictureBox.Left, pictureBox.Bottom + 2),
+                Size = new Size(contentWidth, 15),
+                TextAlign = ContentAlignment.MiddleCenter,
+                Font = new Font("Arial", 8),
+                AutoSize = false
+            };
+
+            // Создаем кнопку удаления
+            var btnDelete = CreateDeleteButton(pictureBox);
+
+            // Добавляем обработчики событий
+            pictureBox.Click += (sender, e) => OnFrameClick(name);
+            pictureBox.MouseDown += PictureBox_MouseDownStartDrag;
+
+            return (pictureBox, label, btnDelete);
+        }
+
+        public void AddFrame(Bitmap image, string name)
+        {
+            var contentWidth = GetContentWidth();
+            var contentHeight = GetContentHeight(contentWidth);
+
+            var (pictureBox, label, btnDelete) = CreateFrameControls(name, contentWidth, contentHeight);
+
+            pictureBox.Image = (Bitmap)image.Clone();
+
+            // Добавляем элементы на панель
+            panelScreenshots.Controls.Add(pictureBox);
+            panelScreenshots.Controls.Add(label);
+            frameItems.Add((pictureBox, label, btnDelete));
 
             UpdatePanelSize();
-            LayoutScreenshots();
+            LayoutFrames();
         }
 
         private void OnDeleteItemClick(object? sender, EventArgs e)
         {
             if (sender is Button btn && btn.Tag is PictureBox pb)
             {
-                int idx = screenshotItems.FindIndex(it => it.Picture == pb);
+                var idx = frameItems.FindIndex(it => it.Picture == pb);
                 if (idx >= 0)
                 {
-                    var item = screenshotItems[idx];
-                    string screenshotName = item.Label.Text;
+                    var item = frameItems[idx];
+                    var frameName = item.Label.Text;
                     
-                    ShowStatusMessage($"Удаление скриншота '{screenshotName}'...", MessageType.Info);
+                    ShowStatusMessage($"Удаление кадра '{frameName}'...", MessageType.Info);
                     
                     panelScreenshots.Controls.Remove(item.Picture);
                     panelScreenshots.Controls.Remove(item.Label);
@@ -315,38 +191,38 @@ namespace Client.WinForms
                     item.Picture.Dispose();
                     item.Label.Dispose();
                     item.Delete.Dispose();
-                    screenshotItems.RemoveAt(idx);
+                    frameItems.RemoveAt(idx);
                     UpdatePanelSize();
-                    LayoutScreenshots();
+                    LayoutFrames();
                     
-                    ShowStatusMessage($"Скриншот '{screenshotName}' успешно удален", MessageType.Success);
+                    ShowStatusMessage($"Кадр '{frameName}' успешно удален", MessageType.Success);
                 }
             }
         }
 
         private async void btnCreateFrame_Click(object? sender, EventArgs e)
         {
-            ShowStatusMessage("Начало создания скриншота...", MessageType.Info);
+            ShowStatusMessage("Начало создания кадра...", MessageType.Info);
             
             // Скрываем форму для захвата экрана
-            this.WindowState = FormWindowState.Minimized;
-            this.Hide();
+            WindowState = FormWindowState.Minimized;
+            Hide();
             
             // Небольшая задержка для полного скрытия формы
             await Task.Delay(300);
             
             try
             {
-                var screenshot = CaptureScreenArea();
-                if (screenshot != null)
+                var frame = CaptureScreenArea();
+                if (frame != null)
                 {
-                    string timestamp = DateTime.Now.ToString("HH-mm-ss");
-                    AddScreenshot(screenshot, $"Скриншот {timestamp}");
-                    ShowStatusMessage("Скриншот успешно создан", MessageType.Success);
+                    var timestamp = DateTime.Now.ToString("HH-mm-ss");
+                    AddFrame(frame, $"Кадр {timestamp}");
+                    ShowStatusMessage("Кадр успешно создан", MessageType.Success);
                 }
                 else
                 {
-                    ShowStatusMessage("Создание скриншота отменено", MessageType.Info);
+                    ShowStatusMessage("Создание кадра отменено", MessageType.Info);
                 }
             }
             catch (Exception ex)
@@ -356,9 +232,9 @@ namespace Client.WinForms
             finally
             {
                 // Показываем форму обратно
-                this.Show();
-                this.WindowState = FormWindowState.Normal;
-                this.BringToFront();
+                Show();
+                WindowState = FormWindowState.Normal;
+                BringToFront();
             }
         }
 
@@ -375,9 +251,9 @@ namespace Client.WinForms
                 Cursor = Cursors.Cross
             };
 
-            Rectangle selectedArea = Rectangle.Empty;
-            bool isCapturing = false;
-            Point startPoint = Point.Empty;
+            var selectedArea = Rectangle.Empty;
+            var isCapturing = false;
+            var startPoint = Point.Empty;
 
             // Обработчики событий мыши
             captureForm.MouseDown += (s, e) =>
@@ -393,10 +269,10 @@ namespace Client.WinForms
             {
                 if (isCapturing)
                 {
-                    int x = Math.Min(startPoint.X, e.X);
-                    int y = Math.Min(startPoint.Y, e.Y);
-                    int width = Math.Abs(e.X - startPoint.X);
-                    int height = Math.Abs(e.Y - startPoint.Y);
+                    var x = Math.Min(startPoint.X, e.X);
+                    var y = Math.Min(startPoint.Y, e.Y);
+                    var width = Math.Abs(e.X - startPoint.X);
+                    var height = Math.Abs(e.Y - startPoint.Y);
                     selectedArea = new Rectangle(x, y, width, height);
                     captureForm.Invalidate();
                 }
@@ -457,14 +333,21 @@ namespace Client.WinForms
             try
             {
                 // Проверяем наличие tessdata перед запуском
-                string tessdataPath = Path.Combine(AppContext.BaseDirectory, "tessdata");
+                var tessdataPath = Path.Combine(AppContext.BaseDirectory, "tessdata");
                 if (!Directory.Exists(tessdataPath))
                 {
                     ShowStatusMessage($"Не найдена папка tessdata. Разместите файлы языковых моделей (rus.traineddata, eng.traineddata) в папке: {tessdataPath}", MessageType.Error);
                     return;
                 }
 
-                string? text = await Task.Run(() => RunOcrAndBuildText());
+                // Подготавливаем коллекцию Bitmap из frameItems
+                var bitmaps = frameItems
+                    .Where(item => item.Picture.Image is Bitmap)
+                    .Select(item => item.Picture.Image as Bitmap)
+                    .Where(bmp => bmp != null)
+                    .ToList();
+
+                var text = await Task.Run(() => _ocrService.RunOcrAndBuildText(bitmaps, tessdataPath));
                 
                 if (string.IsNullOrWhiteSpace(text))
                 {
@@ -475,7 +358,7 @@ namespace Client.WinForms
                 // Только при успешном считывании обновляем текст
                 if (chkNormalize.Checked)
                 {
-                    text = NormalizeText(text);
+                    text = _textProcessingService.NormalizeText(text);
                 }
                 richText.Text = text;
                 ShowStatusMessage("Текст успешно сформирован", MessageType.Success);
@@ -492,14 +375,14 @@ namespace Client.WinForms
             
             try
             {
-                string textToRender = chkNormalize.Checked ? NormalizeText(richText.Text) : richText.Text;
+                var textToRender = chkNormalize.Checked ? _textProcessingService.NormalizeText(richText.Text) : richText.Text;
                 if (string.IsNullOrWhiteSpace(textToRender))
                 {
                     ShowStatusMessage("Нет текста для формирования картинки.", MessageType.Info);
                     return;
                 }
 
-                var img = RenderTextToBitmap(textToRender, exportImageWidth, exportPadding, exportFontSize);
+                var img = _imageRenderingService.RenderTextToBitmap(textToRender, exportImageWidth, exportPadding, exportFontSize);
                 // Освобождаем старую картинку, если была
                 if (picturePreview.Image != null)
                 {
@@ -516,118 +399,6 @@ namespace Client.WinForms
             }
         }
 
-        private string? RunOcrAndBuildText()
-        {
-            StringBuilder sb = new StringBuilder();
-            
-            // Пробуем найти tessdata рядом с exe
-            string tessdataPath = Path.Combine(AppContext.BaseDirectory, "tessdata");
-            if (!Directory.Exists(tessdataPath))
-            {
-                // Возвращаем null, чтобы показать MessageBox
-                return null;
-            }
-
-            try
-            {
-                using (var engine = new TesseractEngine(tessdataPath, "rus+eng", EngineMode.Default))
-                {
-                    foreach (var item in screenshotItems)
-                    {
-                        if (item.Picture.Image is Bitmap bmp)
-                        {
-                            using (var pix = ConvertBitmapToPix(bmp))
-                            using (var page = engine.Process(pix))
-                            {
-                                string text = page.GetText();
-                                if (!string.IsNullOrWhiteSpace(text))
-                                {
-                                    sb.AppendLine(text);
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            catch (Exception)
-            {
-                // При ошибке возвращаем null, чтобы показать MessageBox
-                return null;
-            }
-
-            return sb.Length > 0 ? sb.ToString() : null;
-        }
-
-        private static Pix ConvertBitmapToPix(Bitmap bitmap)
-        {
-            using (var ms = new MemoryStream())
-            {
-                // PNG даёт без потерь и понятен Tesseract
-                bitmap.Save(ms, System.Drawing.Imaging.ImageFormat.Png);
-                ms.Position = 0;
-                return Pix.LoadFromMemory(ms.ToArray());
-            }
-        }
-
-        private static string NormalizeText(string text)
-        {
-            if (string.IsNullOrWhiteSpace(text)) return string.Empty;
-            // Trim построчно
-            string[] lines = text.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n');
-            for (int i = 0; i < lines.Length; i++)
-            {
-                lines[i] = lines[i].Trim();
-            }
-            string joined = string.Join("\n", lines);
-            // Схлопываем более одного пустого до одного
-            joined = Regex.Replace(joined, "\n{2,}", "\n");
-            return joined.Trim();
-        }
-
-        private static Bitmap RenderTextToBitmap(string text, int widthPx, int paddingPx, int fontSizePx)
-        {
-            if (string.IsNullOrEmpty(text))
-            {
-                text = "(пусто)";
-            }
-
-            using Font font = new Font("Segoe UI", fontSizePx, FontStyle.Regular, GraphicsUnit.Pixel);
-            int contentWidth = Math.Max(50, widthPx - paddingPx * 2);
-
-            // Оценка высоты через MeasureString (даёт менее «жирный» рендер при DrawString)
-            int textHeight;
-            using (Bitmap tmp = new Bitmap(1, 1))
-            using (Graphics mg = Graphics.FromImage(tmp))
-            {
-                StringFormat measureFormat = new StringFormat(StringFormatFlags.LineLimit)
-                {
-                    Trimming = StringTrimming.Word
-                };
-                SizeF measuredF = mg.MeasureString(text, font, contentWidth, measureFormat);
-                textHeight = (int)Math.Ceiling(measuredF.Height);
-            }
-
-            int totalHeight = paddingPx * 2 + textHeight;
-
-            Bitmap bmp = new Bitmap(widthPx, Math.Max(50, totalHeight));
-            using (Graphics g = Graphics.FromImage(bmp))
-            {
-                g.Clear(Color.White);
-                g.SmoothingMode = SmoothingMode.None;
-                g.TextRenderingHint = TextRenderingHint.ClearTypeGridFit;
-
-                StringFormat drawFormat = new StringFormat(StringFormatFlags.LineLimit)
-                {
-                    Trimming = StringTrimming.Word
-                };
-                RectangleF rect = new RectangleF(paddingPx, paddingPx, contentWidth, textHeight);
-                using (Brush brush = new SolidBrush(Color.Black))
-                {
-                    g.DrawString(text, font, brush, rect, drawFormat);
-                }
-            }
-            return bmp;
-        }
 
         private void btnSaveTxt_Click(object? sender, EventArgs e)
         {
@@ -635,12 +406,8 @@ namespace Client.WinForms
             
             try
             {
-                string timestamp = DateTime.Now.ToString("yyyy-MM-dd_HH-mm-ss");
-                string dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "Frame Manager");
-                Directory.CreateDirectory(dir);
-                string file = Path.Combine(dir, $"{timestamp}.txt");
-                File.WriteAllText(file, richText.Text, Encoding.UTF8);
-                ShowStatusMessage($"Сохранено: {file}", MessageType.Success);
+                var filePath = _fileService.SaveTextWithTimestamp(richText.Text);
+                ShowStatusMessage($"Сохранено: {filePath}", MessageType.Success);
             }
             catch (Exception ex)
             {
@@ -660,14 +427,8 @@ namespace Client.WinForms
                     return;
                 }
 
-                string timestamp = DateTime.Now.ToString("yyyy-MM-dd_HH-mm-ss");
-                string dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "Frame Manager");
-                Directory.CreateDirectory(dir);
-                string file = Path.Combine(dir, $"{timestamp}.png");
-                
-                // Сохраняем картинку с вкладки "Картинка"
-                picturePreview.Image.Save(file, System.Drawing.Imaging.ImageFormat.Png);
-                ShowStatusMessage($"Сохранено: {file}", MessageType.Success);
+                var filePath = _fileService.SaveImageWithTimestamp((Bitmap)picturePreview.Image);
+                ShowStatusMessage($"Сохранено: {filePath}", MessageType.Success);
             }
             catch (Exception ex)
             {
@@ -679,7 +440,7 @@ namespace Client.WinForms
         {
             ShowStatusMessage("Начало добавления изображений...", MessageType.Info);
             
-            string defaultFolder = @"C:\Users\gorba_6ku4vx\OneDrive\Документы\Frame Manager";
+            var defaultFolder = @"C:\Users\gorba_6ku4vx\OneDrive\Документы\Frame Manager";
             if (!Directory.Exists(defaultFolder))
             {
                 Directory.CreateDirectory(defaultFolder);
@@ -694,13 +455,13 @@ namespace Client.WinForms
             };
             if (ofd.ShowDialog(this) == DialogResult.OK)
             {
-                int successCount = 0;
+                var successCount = 0;
                 foreach (var path in ofd.FileNames)
                 {
                     try
                     {
                         using var img = new Bitmap(path);
-                        AddScreenshot(img, Path.GetFileNameWithoutExtension(path));
+                        AddFrame(img, Path.GetFileNameWithoutExtension(path));
                         successCount++;
                     }
                     catch (Exception ex)
@@ -726,9 +487,7 @@ namespace Client.WinForms
             
             try
             {
-                string dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "Frame Manager");
-                Directory.CreateDirectory(dir);
-                System.Diagnostics.Process.Start("explorer.exe", dir);
+                _fileService.OpenFrameManagerFolder();
                 ShowStatusMessage("Папка успешно открыта", MessageType.Success);
             }
             catch (Exception ex)
@@ -770,15 +529,12 @@ namespace Client.WinForms
                 return;
             }
 
-            int successCount = 0;
+            var successCount = 0;
             foreach (var path in ofd.FileNames)
             {
                 try
                 {
-                    string content;
-                    // Пытаемся UTF-8, затем системная кодировка как запасной вариант
-                    try { content = File.ReadAllText(path, Encoding.UTF8); }
-                    catch { content = File.ReadAllText(path, Encoding.Default); }
+                    var content = _fileService.ReadTextFile(path);
 
                     if (!string.IsNullOrEmpty(content))
                     {
@@ -800,68 +556,44 @@ namespace Client.WinForms
             }
         }
 
-        private Bitmap CreateTestImage(string name, int width, int height)
-        {
-            Bitmap bitmap = new Bitmap(width, height);
-            using (Graphics g = Graphics.FromImage(bitmap))
-            {
-                // Заливаем фон
-                g.FillRectangle(Brushes.LightBlue, 0, 0, width, height);
-                
-                // Добавляем рамку
-                g.DrawRectangle(Pens.Black, 0, 0, width - 1, height - 1);
-                
-                // Добавляем текст
-                Font font = new Font("Arial", 12, FontStyle.Bold);
-                StringFormat format = new StringFormat
-                {
-                    Alignment = StringAlignment.Center,
-                    LineAlignment = StringAlignment.Center
-                };
-                g.DrawString(name, font, Brushes.Black,
-                    new RectangleF(0, 0, width, height), format);
-            }
-            return bitmap;
-        }
-
         private void UpdatePanelSize()
         {
-            if (screenshotItems.Count > 0)
+            if (frameItems.Count > 0)
             {
-                int contentWidth = GetContentWidth();
-                int contentHeight = GetContentHeight(contentWidth);
-                int totalHeight = panelScreenshots.Padding.Vertical + screenshotItems.Count * (contentHeight + screenshotSpacing);
+                var contentWidth = GetContentWidth();
+                var contentHeight = GetContentHeight(contentWidth);
+                var totalHeight = panelScreenshots.Padding.Vertical + frameItems.Count * (contentHeight + frameSpacing);
                 panelScreenshots.AutoScrollMinSize = new Size(0, totalHeight);
             }
         }
 
-        private void OnScreenshotClick(string screenshotName)
+        private void OnFrameClick(string frameName)
         {
-            ShowStatusMessage($"Выбран скриншот: {screenshotName}", MessageType.Info);
+            ShowStatusMessage($"Выбран кадр: {frameName}", MessageType.Info);
         }
 
         private int GetContentWidth()
         {
             // Делаем ширину контента на пару пикселей меньше клиентской ширины, чтобы исключить горизонтальную прокрутку
-            int clientWidth = Math.Max(0, panelScreenshots.ClientSize.Width - panelScreenshots.Padding.Horizontal);
+            var clientWidth = Math.Max(0, panelScreenshots.ClientSize.Width - panelScreenshots.Padding.Horizontal);
             return Math.Max(50, clientWidth - 2);
         }
 
         private int GetContentHeight(int contentWidth)
         {
             // Сохраняем базовое соотношение сторон
-            float aspect = (float)baseScreenshotHeight / baseScreenshotWidth;
+            var aspect = (float)baseFrameHeight / baseFrameWidth;
             return Math.Max(40, (int)(contentWidth * aspect));
         }
 
-        private void LayoutScreenshots()
+        private void LayoutFrames()
         {
-            int contentWidth = GetContentWidth();
-            int contentHeight = GetContentHeight(contentWidth);
+            var contentWidth = GetContentWidth();
+            var contentHeight = GetContentHeight(contentWidth);
 
-            int y = panelScreenshots.Padding.Top;
+            var y = panelScreenshots.Padding.Top;
 
-            foreach (var item in screenshotItems)
+            foreach (var item in frameItems)
             {
                 var pictureBox = item.Picture;
                 var label = item.Label;
@@ -877,7 +609,7 @@ namespace Client.WinForms
                 btnDelete.Location = new Point(pictureBox.Width - btnDelete.Width, 0);
                 btnDelete.BringToFront();
 
-                y = pictureBox.Bottom + 2 + 15 + screenshotSpacing;
+                y = pictureBox.Bottom + 2 + 15 + frameSpacing;
             }
 
             panelScreenshots.AutoScrollMinSize = new Size(0, Math.Max(0, y + panelScreenshots.Padding.Bottom));
@@ -885,17 +617,12 @@ namespace Client.WinForms
             HideDropIndicator();
         }
 
-        private void FormMain_Load(object sender, EventArgs e)
-        {
-            // Дополнительная инициализация при загрузке формы
-        }
-
         // --- Drag & Drop перестановка миниатюр ---
         private void PictureBox_MouseDownStartDrag(object? sender, MouseEventArgs e)
         {
             if (sender is PictureBox pb && e.Button == MouseButtons.Left)
             {
-                int idx = screenshotItems.FindIndex(it => it.Picture == pb);
+                var idx = frameItems.FindIndex(it => it.Picture == pb);
                 if (idx >= 0)
                 {
                     dragSourceIndex = idx;
@@ -920,9 +647,9 @@ namespace Client.WinForms
         {
             if (e.Data == null || !e.Data.GetDataPresent(typeof(PictureBox))) return;
 
-            Point clientPoint = panelScreenshots.PointToClient(new Point(e.X, e.Y));
+            var clientPoint = panelScreenshots.PointToClient(new Point(e.X, e.Y));
             int indicatorY;
-            int insertIndex = ComputeInsertIndexAndY(clientPoint, out indicatorY);
+            var insertIndex = ComputeInsertIndexAndY(clientPoint, out indicatorY);
             if (insertIndex < 0) { HideDropIndicator(); dragInsertIndex = null; return; }
 
             dragInsertIndex = insertIndex;
@@ -940,9 +667,9 @@ namespace Client.WinForms
 
             HideDropIndicator();
 
-            Point clientPoint = panelScreenshots.PointToClient(new Point(e.X, e.Y));
+            var clientPoint = panelScreenshots.PointToClient(new Point(e.X, e.Y));
             int indicatorY;
-            int insertIndex = dragInsertIndex ?? ComputeInsertIndexAndY(clientPoint, out indicatorY);
+            var insertIndex = dragInsertIndex ?? ComputeInsertIndexAndY(clientPoint, out indicatorY);
             dragInsertIndex = null;
             
             if (insertIndex < 0) 
@@ -952,61 +679,61 @@ namespace Client.WinForms
                 return; 
             }
 
-            int sourceIndex = dragSourceIndex.Value;
-            string screenshotName = screenshotItems[sourceIndex].Label.Text;
+            var sourceIndex = dragSourceIndex.Value;
+            var frameName = frameItems[sourceIndex].Label.Text;
             dragSourceIndex = null;
 
-            var item = screenshotItems[sourceIndex];
-            screenshotItems.RemoveAt(sourceIndex);
+            var item = frameItems[sourceIndex];
+            frameItems.RemoveAt(sourceIndex);
             if (insertIndex > sourceIndex) insertIndex--; // поправка после удаления исходного
             if (insertIndex < 0) insertIndex = 0;
-            if (insertIndex > screenshotItems.Count) insertIndex = screenshotItems.Count;
-            screenshotItems.Insert(insertIndex, item);
+            if (insertIndex > frameItems.Count) insertIndex = frameItems.Count;
+            frameItems.Insert(insertIndex, item);
 
-            LayoutScreenshots();
+            LayoutFrames();
             
-            int newPosition = insertIndex + 1;
-            int oldPosition = sourceIndex + 1;
-            ShowStatusMessage($"Скриншот '{screenshotName}' перемещен с позиции {oldPosition} на позицию {newPosition}", MessageType.Success);
+            var newPosition = insertIndex + 1;
+            var oldPosition = sourceIndex + 1;
+            ShowStatusMessage($"Кадр '{frameName}' перемещен с позиции {oldPosition} на позицию {newPosition}", MessageType.Success);
         }
 
         private int ComputeInsertIndexAndY(Point p, out int indicatorY)
         {
             indicatorY = -1;
-            if (screenshotItems.Count == 0)
+            if (frameItems.Count == 0)
             {
                 indicatorY = panelScreenshots.Padding.Top;
                 return 0;
             }
 
-            for (int i = 0; i < screenshotItems.Count; i++)
+            for (var i = 0; i < frameItems.Count; i++)
             {
-                var pic = screenshotItems[i].Picture;
-                int blockTop = pic.Top;
-                int blockBottom = pic.Bottom + 2 + 15; // включая подпись
-                int mid = (blockTop + blockBottom) / 2;
+                var pic = frameItems[i].Picture;
+                var blockTop = pic.Top;
+                var blockBottom = pic.Bottom + 2 + 15; // включая подпись
+                var mid = (blockTop + blockBottom) / 2;
 
                 if (p.Y < blockTop)
                 {
-                    indicatorY = Math.Max(panelScreenshots.Padding.Top, blockTop - screenshotSpacing / 2);
+                    indicatorY = Math.Max(panelScreenshots.Padding.Top, blockTop - frameSpacing / 2);
                     return i;
                 }
                 if (p.Y >= blockTop && p.Y < mid)
                 {
-                    indicatorY = Math.Max(panelScreenshots.Padding.Top, blockTop - screenshotSpacing / 2);
+                    indicatorY = Math.Max(panelScreenshots.Padding.Top, blockTop - frameSpacing / 2);
                     return i;
                 }
                 if (p.Y >= mid && p.Y <= blockBottom)
                 {
-                    indicatorY = blockBottom + screenshotSpacing / 2;
+                    indicatorY = blockBottom + frameSpacing / 2;
                     return i + 1;
                 }
             }
 
             // Ниже последнего
-            var last = screenshotItems[^1].Picture;
-            indicatorY = last.Bottom + 2 + 15 + screenshotSpacing / 2;
-            return screenshotItems.Count;
+            var last = frameItems[^1].Picture;
+            indicatorY = last.Bottom + 2 + 15 + frameSpacing / 2;
+            return frameItems.Count;
         }
 
         private void ShowDropIndicator(int y)
