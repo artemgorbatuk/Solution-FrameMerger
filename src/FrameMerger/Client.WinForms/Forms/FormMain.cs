@@ -1,13 +1,13 @@
 using Client.WinForms.Services;
 using System.Drawing.Drawing2D;
+using static Client.WinForms.Services.StatusMessages;
 using MessageType = Client.WinForms.Services.MessageType;
 
 namespace Client.WinForms
 {
     public partial class FormMain : Form
     {
-        private static readonly List<(PictureBox Picture, Label Label, Button Delete)> value = [];
-        private readonly List<(PictureBox Picture, Label Label, Button Delete)> frameItems = value;
+        private readonly List<(PictureBox Picture, Label Label, Button Delete)> frameItems = [];
         private readonly int frameSpacing = 10;
         private readonly int baseFrameWidth = 180;
         private readonly int baseFrameHeight = 120;
@@ -21,23 +21,15 @@ namespace Client.WinForms
         private bool isEditEnabled = false;
 
         // Сервисы
-        private readonly ITextProcessingService _textProcessingService;
-        private readonly IImageRenderingService _imageRenderingService;
-        private readonly IOcrService _ocrService;
-        private readonly IFileService _fileService;
-        private readonly IStatusMessageService _statusMessageService;
+        private readonly ITextProcessingService _textProcessingService = new TextProcessingService();
+        private readonly IImageRenderingService _imageRenderingService = new ImageRenderingService();
+        private readonly IOcrService _ocrService = new OcrService();
+        private readonly IFileService _fileService = new FileService();
+        private readonly IStatusMessageService _statusMessageService = new StatusMessageService();
 
         public FormMain()
         {
             InitializeComponent();
-            
-            // Инициализация сервисов
-            _textProcessingService = new TextProcessingService();
-            _imageRenderingService = new ImageRenderingService();
-            _ocrService = new OcrService();
-            _fileService = new FileService();
-            _statusMessageService = new StatusMessageService();
-            
             InitializeFramePanel();
         }
 
@@ -98,10 +90,14 @@ namespace Client.WinForms
                 TabStop = false,
                 TextAlign = ContentAlignment.MiddleCenter,
                 Margin = Padding.Empty,
-                Padding = Padding.Empty
+                Padding = Padding.Empty,
+                Tag = pictureBox,
+                Parent = pictureBox,
+                Anchor = AnchorStyles.Top | AnchorStyles.Right,
+                Location = new Point(pictureBox.Width - 22, 0)
             };
+            
             btnDelete.FlatAppearance.BorderSize = 0;
-            btnDelete.Tag = pictureBox;
             btnDelete.Click += OnDeleteItemClick;
             btnDelete.Paint += (s, pe) =>
             {
@@ -112,12 +108,7 @@ namespace Client.WinForms
                 pe.Graphics.DrawString("×", f, br, new RectangleF(0, 0, ((Control)s!).Width, ((Control)s!).Height), sf);
             };
 
-            // Крестик размещаем внутри превью
-            btnDelete.Parent = pictureBox;
-            btnDelete.Anchor = AnchorStyles.Top | AnchorStyles.Right;
-            btnDelete.Location = new Point(pictureBox.Width - btnDelete.Width, 0);
             pictureBox.Controls.Add(btnDelete);
-
             return btnDelete;
         }
 
@@ -182,7 +173,7 @@ namespace Client.WinForms
                     var item = frameItems[idx];
                     var frameName = item.Label.Text;
                     
-                    ShowStatusMessage($"Удаление кадра '{frameName}'...", MessageType.Info);
+                    ShowStatusMessage(string.Format(FrameDeletionStart, frameName), MessageType.Info);
                     
                     panelScreenshots.Controls.Remove(item.Picture);
                     panelScreenshots.Controls.Remove(item.Label);
@@ -195,14 +186,14 @@ namespace Client.WinForms
                     UpdatePanelSize();
                     LayoutFrames();
                     
-                    ShowStatusMessage($"Кадр '{frameName}' успешно удален", MessageType.Success);
+                    ShowStatusMessage(string.Format(FrameDeletedSuccessfully, frameName), MessageType.Success);
                 }
             }
         }
 
         private async void btnCreateFrame_Click(object? sender, EventArgs e)
         {
-            ShowStatusMessage("Начало создания кадра...", MessageType.Info);
+            ShowStatusMessage(FrameCreationStart, MessageType.Info);
             
             // Скрываем форму для захвата экрана
             WindowState = FormWindowState.Minimized;
@@ -218,16 +209,16 @@ namespace Client.WinForms
                 {
                     var timestamp = DateTime.Now.ToString("HH-mm-ss");
                     AddFrame(frame, $"Кадр {timestamp}");
-                    ShowStatusMessage("Кадр успешно создан", MessageType.Success);
+                    ShowStatusMessage(FrameCreatedSuccessfully, MessageType.Success);
                 }
                 else
                 {
-                    ShowStatusMessage("Создание кадра отменено", MessageType.Info);
+                    ShowStatusMessage(FrameCreationCancelled, MessageType.Info);
                 }
             }
             catch (Exception ex)
             {
-                ShowStatusMessage($"Ошибка захвата экрана: {ex.Message}", MessageType.Error);
+                ShowStatusMessage(string.Format(ScreenCaptureError, ex.Message), MessageType.Error);
             }
             finally
             {
@@ -328,7 +319,7 @@ namespace Client.WinForms
         // =========== OCR + TEXT PIPELINE ===========
         private async void btnFormText_Click(object? sender, EventArgs e)
         {
-            ShowStatusMessage("Начало формирования текста...", MessageType.Info);
+            ShowStatusMessage(TextFormationStart, MessageType.Info);
             
             try
             {
@@ -336,7 +327,7 @@ namespace Client.WinForms
                 var tessdataPath = Path.Combine(AppContext.BaseDirectory, "tessdata");
                 if (!Directory.Exists(tessdataPath))
                 {
-                    ShowStatusMessage($"Не найдена папка tessdata. Разместите файлы языковых моделей (rus.traineddata, eng.traineddata) в папке: {tessdataPath}", MessageType.Error);
+                    ShowStatusMessage(string.Format(TesseractNotFound, tessdataPath), MessageType.Error);
                     return;
                 }
 
@@ -351,7 +342,7 @@ namespace Client.WinForms
                 
                 if (string.IsNullOrWhiteSpace(text))
                 {
-                    ShowStatusMessage("Текст не найден на изображениях.", MessageType.Warning);
+                    ShowStatusMessage(TextNotFoundOnImages, MessageType.Warning);
                     return;
                 }
                 
@@ -361,24 +352,24 @@ namespace Client.WinForms
                     text = _textProcessingService.NormalizeText(text);
                 }
                 richText.Text = text;
-                ShowStatusMessage("Текст успешно сформирован", MessageType.Success);
+                ShowStatusMessage(TextFormedSuccessfully, MessageType.Success);
             }
             catch (Exception ex)
             {
-                ShowStatusMessage($"Ошибка OCR: {ex.Message}", MessageType.Error);
+                ShowStatusMessage(string.Format(OcrError, ex.Message), MessageType.Error);
             }
         }
 
         private void btnFormImage_Click(object? sender, EventArgs e)
         {
-            ShowStatusMessage("Начало формирования картинки...", MessageType.Info);
+            ShowStatusMessage(ImageFormationStart, MessageType.Info);
             
             try
             {
                 var textToRender = chkNormalize.Checked ? _textProcessingService.NormalizeText(richText.Text) : richText.Text;
                 if (string.IsNullOrWhiteSpace(textToRender))
                 {
-                    ShowStatusMessage("Нет текста для формирования картинки.", MessageType.Info);
+                    ShowStatusMessage(NoTextForImageGeneration, MessageType.Info);
                     return;
                 }
 
@@ -391,54 +382,54 @@ namespace Client.WinForms
                 picturePreview.Image = img;
                 picturePreview.Size = img.Size;
                 tabControl.SelectedTab = tabImage;
-                ShowStatusMessage("Картинка успешно сформирована", MessageType.Success);
+                ShowStatusMessage(ImageFormedSuccessfully, MessageType.Success);
             }
             catch (Exception ex)
             {
-                ShowStatusMessage($"Ошибка формирования картинки: {ex.Message}", MessageType.Error);
+                ShowStatusMessage(string.Format(ImageGenerationError, ex.Message), MessageType.Error);
             }
         }
 
 
         private void btnSaveTxt_Click(object? sender, EventArgs e)
         {
-            ShowStatusMessage("Начало сохранения текста...", MessageType.Info);
+            ShowStatusMessage(TextSaveStart, MessageType.Info);
             
             try
             {
                 var filePath = _fileService.SaveTextWithTimestamp(richText.Text);
-                ShowStatusMessage($"Сохранено: {filePath}", MessageType.Success);
+                ShowStatusMessage(string.Format(FileSaved, filePath), MessageType.Success);
             }
             catch (Exception ex)
             {
-                ShowStatusMessage($"Ошибка сохранения TXT: {ex.Message}", MessageType.Error);
+                ShowStatusMessage(string.Format(TextSaveError, ex.Message), MessageType.Error);
             }
         }
 
         private void btnSavePng_Click(object? sender, EventArgs e)
         {
-            ShowStatusMessage("Начало сохранения картинки...", MessageType.Info);
+            ShowStatusMessage(ImageSaveStart, MessageType.Info);
             
             try
             {
                 if (picturePreview.Image == null)
                 {
-                    ShowStatusMessage("Нет картинки для сохранения. Сначала сформируйте картинку.", MessageType.Info);
+                    ShowStatusMessage(NoImageToSave, MessageType.Info);
                     return;
                 }
 
                 var filePath = _fileService.SaveImageWithTimestamp((Bitmap)picturePreview.Image);
-                ShowStatusMessage($"Сохранено: {filePath}", MessageType.Success);
+                ShowStatusMessage(string.Format(FileSaved, filePath), MessageType.Success);
             }
             catch (Exception ex)
             {
-                ShowStatusMessage($"Ошибка сохранения PNG: {ex.Message}", MessageType.Error);
+                ShowStatusMessage(string.Format(ImageSaveError, ex.Message), MessageType.Error);
             }
         }
 
         private void btnAddFromFile_Click(object? sender, EventArgs e)
         {
-            ShowStatusMessage("Начало добавления изображений...", MessageType.Info);
+            ShowStatusMessage(ImageLoadStart, MessageType.Info);
             
             var defaultFolder = @"C:\Users\gorba_6ku4vx\OneDrive\Документы\Frame Manager";
             if (!Directory.Exists(defaultFolder))
@@ -466,51 +457,51 @@ namespace Client.WinForms
                     }
                     catch (Exception ex)
                     {
-                        ShowStatusMessage($"Не удалось загрузить {path}: {ex.Message}", MessageType.Error);
+                        ShowStatusMessage(string.Format(ImageLoadError, path, ex.Message), MessageType.Error);
                     }
                 }
                 
                 if (successCount > 0)
                 {
-                    ShowStatusMessage($"Успешно добавлено изображений: {successCount}", MessageType.Success);
+                    ShowStatusMessage(string.Format(ImagesLoadedSuccessfully, successCount), MessageType.Success);
                 }
             }
             else
             {
-                ShowStatusMessage("Добавление изображений отменено", MessageType.Info);
+                ShowStatusMessage(ImageLoadCancelled, MessageType.Info);
             }
         }
 
         private void btnOpenFolder_Click(object? sender, EventArgs e)
         {
-            ShowStatusMessage("Открытие папки...", MessageType.Info);
+            ShowStatusMessage(FolderOpenStart, MessageType.Info);
             
             try
             {
                 _fileService.OpenFrameManagerFolder();
-                ShowStatusMessage("Папка успешно открыта", MessageType.Success);
+                ShowStatusMessage(FolderOpenedSuccessfully, MessageType.Success);
             }
             catch (Exception ex)
             {
-                ShowStatusMessage($"Ошибка открытия папки: {ex.Message}", MessageType.Error);
+                ShowStatusMessage(string.Format(FolderOpenError, ex.Message), MessageType.Error);
             }
         }
 
         private void btnToggleEdit_Click(object? sender, EventArgs e)
         {
-            ShowStatusMessage($"Переключение режима редактирования...", MessageType.Info);
+            ShowStatusMessage(EditModeToggle, MessageType.Info);
             
             isEditEnabled = !isEditEnabled;
             richText.ReadOnly = !isEditEnabled;
             richText.BackColor = isEditEnabled ? Color.White : SystemColors.Control;
             btnToggleEdit.Text = isEditEnabled ? "Запретить редакт." : "Разрешить редакт.";
             
-            ShowStatusMessage(isEditEnabled ? "Редактирование разрешено" : "Редактирование запрещено", MessageType.Success);
+            ShowStatusMessage(isEditEnabled ? EditEnabled : EditDisabled, MessageType.Success);
         }
 
         private void btnAddText_Click(object? sender, EventArgs e)
         {
-            ShowStatusMessage("Начало добавления текста из файлов...", MessageType.Info);
+            ShowStatusMessage(TextLoadStart, MessageType.Info);
             
             using OpenFileDialog ofd = new OpenFileDialog
             {
@@ -525,7 +516,7 @@ namespace Client.WinForms
             };
             if (ofd.ShowDialog(this) != DialogResult.OK)
             {
-                ShowStatusMessage("Добавление текста отменено", MessageType.Info);
+                ShowStatusMessage(TextLoadCancelled, MessageType.Info);
                 return;
             }
 
@@ -546,13 +537,13 @@ namespace Client.WinForms
                 }
                 catch (Exception ex)
                 {
-                    ShowStatusMessage($"Не удалось прочитать {path}: {ex.Message}", MessageType.Error);
+                    ShowStatusMessage(string.Format(TextReadError, path, ex.Message), MessageType.Error);
                 }
             }
             
             if (successCount > 0)
             {
-                ShowStatusMessage($"Успешно добавлено файлов: {successCount}", MessageType.Success);
+                ShowStatusMessage(string.Format(TextFilesLoadedSuccessfully, successCount), MessageType.Success);
             }
         }
 
@@ -567,10 +558,8 @@ namespace Client.WinForms
             }
         }
 
-        private void OnFrameClick(string frameName)
-        {
-            ShowStatusMessage($"Выбран кадр: {frameName}", MessageType.Info);
-        }
+        private void OnFrameClick(string frameName) => 
+            ShowStatusMessage(string.Format(FrameSelected, frameName), MessageType.Info);
 
         private int GetContentWidth()
         {
@@ -675,7 +664,7 @@ namespace Client.WinForms
             if (insertIndex < 0) 
             { 
                 dragSourceIndex = null;
-                ShowStatusMessage("Перемещение отменено", MessageType.Info);
+                ShowStatusMessage(MoveCancelled, MessageType.Info);
                 return; 
             }
 
@@ -694,7 +683,7 @@ namespace Client.WinForms
             
             var newPosition = insertIndex + 1;
             var oldPosition = sourceIndex + 1;
-            ShowStatusMessage($"Кадр '{frameName}' перемещен с позиции {oldPosition} на позицию {newPosition}", MessageType.Success);
+            ShowStatusMessage(string.Format(FrameMoved, frameName, oldPosition, newPosition), MessageType.Success);
         }
 
         private int ComputeInsertIndexAndY(Point p, out int indicatorY)
