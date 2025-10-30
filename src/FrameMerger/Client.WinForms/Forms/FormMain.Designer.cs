@@ -54,7 +54,7 @@
             tabImage = new TabPage();
             panelImageScroll = new Panel();
             picturePreview = new PictureBox();
-            panelScreenshots = new Panel();
+            panelFrames = new Panel();
             statusBar = new StatusStrip();
             statusIconLabel = new ToolStripStatusLabel();
             statusLabel = new ToolStripStatusLabel();
@@ -83,7 +83,7 @@
             tableLayoutMain.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 200F));
             tableLayoutMain.Controls.Add(panelTop, 0, 0);
             tableLayoutMain.Controls.Add(tabControl, 0, 1);
-            tableLayoutMain.Controls.Add(panelScreenshots, 1, 1);
+            tableLayoutMain.Controls.Add(panelFrames, 1, 1);
             tableLayoutMain.Controls.Add(statusBar, 0, 2);
             tableLayoutMain.Dock = DockStyle.Fill;
             tableLayoutMain.Location = new Point(0, 0);
@@ -361,17 +361,17 @@
             picturePreview.TabIndex = 0;
             picturePreview.TabStop = false;
             // 
-            // panelScreenshots
+            // panelFrames
             // 
-            panelScreenshots.AutoScroll = true;
-            panelScreenshots.BackColor = Color.LightGray;
-            panelScreenshots.BorderStyle = BorderStyle.FixedSingle;
-            panelScreenshots.Dock = DockStyle.Fill;
-            panelScreenshots.Location = new Point(1153, 88);
-            panelScreenshots.Name = "panelScreenshots";
-            panelScreenshots.Padding = new Padding(10);
-            panelScreenshots.Size = new Size(194, 481);
-            panelScreenshots.TabIndex = 2;
+            panelFrames.AutoScroll = true;
+            panelFrames.BackColor = Color.LightGray;
+            panelFrames.BorderStyle = BorderStyle.FixedSingle;
+            panelFrames.Dock = DockStyle.Fill;
+            panelFrames.Location = new Point(1153, 88);
+            panelFrames.Name = "panelFrames";
+            panelFrames.Padding = new Padding(10);
+            panelFrames.Size = new Size(194, 481);
+            panelFrames.TabIndex = 2;
             // 
             // statusBar
             // 
@@ -403,7 +403,7 @@
             ClientSize = new Size(1350, 600);
             Controls.Add(tableLayoutMain);
             Name = "FormMain";
-            Text = "Frame Merger - Скриншоты";
+            Text = "Frame Merger - Кадры";
             Load += FormMain_Load;
             tableLayoutMain.ResumeLayout(false);
             tableLayoutMain.PerformLayout();
@@ -433,7 +433,7 @@
         #endregion
 
         private TableLayoutPanel tableLayoutMain;
-        private Panel panelScreenshots;
+        private Panel panelFrames;
         private Panel panelTop;
         private Button btnAddFrame;
         private Button btnAddFromFile;
