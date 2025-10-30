@@ -2,19 +2,12 @@ using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Imaging;
 using System.IO;
-using System.Linq;
 using System.Text;
 using Tesseract;
 
 namespace Client.WinForms.Services
 {
-    public interface IOcrService
-    {
-        string? RunOcrAndBuildText(IEnumerable<Bitmap?>? images = null, string? tessdataPath = null);
-        Pix ConvertBitmapToPix(Bitmap bitmap);
-    }
-
-    public class OcrService : IOcrService
+    public class TesseractOcrService : IOcrService
     {
         public string? RunOcrAndBuildText(IEnumerable<Bitmap?>? images = null, string? tessdataPath = null)
         {
@@ -69,7 +62,7 @@ namespace Client.WinForms.Services
             return sb.Length > 0 ? sb.ToString() : null;
         }
 
-        public Pix ConvertBitmapToPix(Bitmap bitmap)
+        private Pix ConvertBitmapToPix(Bitmap bitmap)
         {
             using (var ms = new MemoryStream())
             {

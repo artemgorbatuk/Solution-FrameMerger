@@ -25,7 +25,7 @@ namespace Client.WinForms
         // Сервисы
         private readonly ITextProcessingService _textProcessingService = new TextProcessingService();
         private readonly IImageRenderingService _imageRenderingService = new ImageRenderingService();
-        private readonly IOcrService _ocrService = new OcrService();
+        private readonly IOcrService _ocrService = new TesseractOcrService();
         private readonly IFileService _fileService = new FileService();
         private readonly IStatusMessageService _statusMessageService = new StatusMessageService();
 
@@ -332,10 +332,12 @@ namespace Client.WinForms
             if (captureForm.ShowDialog() == DialogResult.OK && selectedArea.Width > 10 && selectedArea.Height > 10)
             {
                 // Захватываем выбранную область экрана
-                using var screenFrame = new Bitmap(selectedArea.Width, selectedArea.Height);
-                using var screenFrameGraphics = Graphics.FromImage(screenFrame);
-                screenFrameGraphics.CopyFromScreen(selectedArea.Location, Point.Empty, selectedArea.Size);
-                return new Bitmap(screenFrame);
+                var screenFrame = new Bitmap(selectedArea.Width, selectedArea.Height);
+                using (var screenFrameGraphics = Graphics.FromImage(screenFrame))
+                {
+                    screenFrameGraphics.CopyFromScreen(selectedArea.Location, Point.Empty, selectedArea.Size);
+                }
+                return screenFrame;
             }
 
             return null;

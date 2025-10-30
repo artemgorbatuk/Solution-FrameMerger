@@ -9,6 +9,8 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="Sdcb.PaddleOCR" Version="3.0.0" />
+    <PackageReference Include="Sdcb.PaddleOCR.Models.Local" Version="3.0.1" />
     <PackageReference Include="Tesseract" Version="5.2.0" />
   </ItemGroup>
 </Project>
