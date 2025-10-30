@@ -8,7 +8,7 @@ namespace Client.WinForms
     public partial class FormMain : Form
     {
         private readonly List<(PictureBox Picture, Label Label, Button Delete)> frameControls = [];
-        private readonly Dictionary<Guid, (Bitmap Original, Bitmap Thumbnail)> frameIdToBitmaps = new();
+        private readonly Dictionary<Guid, (Bitmap Original, Bitmap Thumbnail)> frames = [];
         private readonly int frameSpacing = 10;
         private readonly int baseThumbnailWidth = 180;
         private readonly int baseThumbnailHeight = 120;
@@ -20,7 +20,7 @@ namespace Client.WinForms
         private Panel? dropInsertIndicatorLine = null; // линия-индикатор позиции вставки
         private int? dragInsertFrameIndex = null; // индекс вставки во время DragOver
         private bool isTextEditEnabled = false;
-        private readonly string defaultFramesFolderPath = @"C:\Users\gorba_6ku4vx\OneDrive\Документы\Frame Manager";
+        private readonly string defaultFramesFolderPath;
 
         // Сервисы
         private readonly ITextProcessingService _textProcessingService = new TextProcessingService();
@@ -33,6 +33,8 @@ namespace Client.WinForms
         {
             InitializeComponent();
             InitializeFramePanel();
+            // Директория по умолчанию: "Документы/Frame Manager" через сервис
+            defaultFramesFolderPath = _fileService.GetFrameManagerDirectory();
         }
 
         private void InitializeFramePanel()
@@ -141,7 +143,7 @@ namespace Client.WinForms
             var btnDelete = CreateDeleteButton(pictureBox);
 
             // Добавляем обработчики событий
-            pictureBox.Click += (sender, e) => OnFrameClick(name);
+            pictureBox.DoubleClick += (sender, e) => OnFrameDoubleClick(pictureBox);
             pictureBox.MouseDown += PictureBox_MouseDownStartDrag;
 
             return (pictureBox, label, btnDelete);
@@ -159,7 +161,7 @@ namespace Client.WinForms
             var frameOriginal = (Bitmap)image.Clone();
             var frameThumbnail = CreateThumbnail(frameOriginal, thumbnailWidth, thumbnailHeight);
 
-            frameIdToBitmaps[frameId] = (frameOriginal, frameThumbnail);
+            frames[frameId] = (frameOriginal, frameThumbnail);
 
             pictureBox.Tag = frameId;
             pictureBox.Image = (Bitmap)frameThumbnail.Clone();
@@ -202,11 +204,11 @@ namespace Client.WinForms
                     frameControls.RemoveAt(frameIndex);
 
                     // Удаляем из словаря и освобождаем оригинал и миниатюру
-                    if (frameId.HasValue && frameIdToBitmaps.TryGetValue(frameId.Value, out var data))
+                    if (frameId.HasValue && frames.TryGetValue(frameId.Value, out var data))
                     {
                         data.Original.Dispose();
                         data.Thumbnail.Dispose();
-                        frameIdToBitmaps.Remove(frameId.Value);
+                        frames.Remove(frameId.Value);
                     }
                     UpdatePanelSize();
                     LayoutFrames();
@@ -331,11 +333,17 @@ namespace Client.WinForms
 
             if (captureForm.ShowDialog() == DialogResult.OK && selectedArea.Width > 10 && selectedArea.Height > 10)
             {
+                // Преобразуем координаты формы в координаты экрана
+                var screenLocation = captureForm.PointToScreen(selectedArea.Location);
+                
                 // Захватываем выбранную область экрана
-                var screenFrame = new Bitmap(selectedArea.Width, selectedArea.Height);
+                var screenFrame = new Bitmap(selectedArea.Width, selectedArea.Height, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
                 using (var screenFrameGraphics = Graphics.FromImage(screenFrame))
                 {
-                    screenFrameGraphics.CopyFromScreen(selectedArea.Location, Point.Empty, selectedArea.Size);
+                    screenFrameGraphics.CompositingQuality = System.Drawing.Drawing2D.CompositingQuality.HighQuality;
+                    screenFrameGraphics.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
+                    screenFrameGraphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.None;
+                    screenFrameGraphics.CopyFromScreen(screenLocation, Point.Empty, selectedArea.Size);
                 }
                 return screenFrame;
             }
@@ -350,23 +358,19 @@ namespace Client.WinForms
             
             try
             {
-                // Проверяем наличие tessdata перед запуском
+                // Проверяем наличие tessdata перед запуском (только для Tesseract)
                 var tessdataPath = Path.Combine(AppContext.BaseDirectory, "tessdata");
-                if (!Directory.Exists(tessdataPath))
-                {
-                    ShowStatusMessage(string.Format(TesseractNotFound, tessdataPath), MessageType.Error);
-                    return;
-                }
+                var tessdataExists = Directory.Exists(tessdataPath);
 
                 // Формируем коллекцию оригиналов в порядке отображения
                 var originalFrames = frameControls
                     .Select(item => item.Picture.Tag)
                     .OfType<Guid>()
-                    .Select(id => frameIdToBitmaps.TryGetValue(id, out var data) ? data.Original : null)
+                    .Select(id => frames.TryGetValue(id, out var data) ? data.Original : null)
                     .Where(bmp => bmp != null)
                     .ToList();
 
-                var text = await Task.Run(() => _ocrService.RunOcrAndBuildText(originalFrames, tessdataPath));
+                var text = await Task.Run(() => _ocrService.RunOcrAndBuildText(originalFrames, tessdataExists ? tessdataPath : null));
                 
                 if (string.IsNullOrWhiteSpace(text))
                 {
@@ -379,6 +383,7 @@ namespace Client.WinForms
                 {
                     text = _textProcessingService.NormalizeText(text);
                 }
+                
                 richText.Text = text;
                 ShowStatusMessage(TextFormedSuccessfully, MessageType.Success);
             }
@@ -587,6 +592,78 @@ namespace Client.WinForms
 
         private void OnFrameClick(string frameName) => 
             ShowStatusMessage(string.Format(FrameSelected, frameName), MessageType.Info);
+
+        private void OnFrameDoubleClick(PictureBox pictureBox)
+        {
+            if (pictureBox.Tag is not Guid frameId)
+                return;
+
+            if (!frames.TryGetValue(frameId, out var frame))
+                return;
+
+            // Создаем модальную форму для просмотра оригинального изображения
+            using var viewForm = new Form
+            {
+                Text = "Просмотр оригинального изображения",
+                WindowState = FormWindowState.Maximized,
+                StartPosition = FormStartPosition.CenterParent,
+                FormBorderStyle = FormBorderStyle.Sizable,
+                MaximizeBox = true,
+                MinimizeBox = true
+            };
+
+            var viewPictureBox = new PictureBox
+            {
+                Dock = DockStyle.Fill,
+                SizeMode = PictureBoxSizeMode.Zoom,
+                Image = (Bitmap)frame.Original.Clone(),
+                BackColor = Color.Black
+            };
+
+            var saveButton = new Button
+            {
+                Text = "Сохранить оригинал",
+                Width = 150,
+                Height = 30,
+                BackColor = Color.FromArgb(240, 240, 240),
+                FlatStyle = FlatStyle.Flat
+            };
+
+            var buttonPanel = new Panel
+            {
+                Dock = DockStyle.Top,
+                Height = 40,
+                BackColor = Color.FromArgb(50, 50, 50)
+            };
+
+            saveButton.Click += (s, e) =>
+            {
+                try
+                {
+                    var timestamp = DateTime.Now.ToString("yyyy-MM-dd_HH-mm-ss");
+                    var dir = _fileService.GetFrameManagerDirectory();
+                    var origPath = Path.Combine(dir, $"{timestamp}_original.png");
+                    _fileService.SaveImage(frame.Original, origPath);
+                    ShowStatusMessage(string.Format(FileSaved, origPath), MessageType.Success);
+                    viewForm.Close();
+                }
+                catch (Exception ex)
+                {
+                    ShowStatusMessage(string.Format(ImageSaveError, ex.Message), MessageType.Error);
+                }
+            };
+
+            buttonPanel.Controls.Add(saveButton);
+            // Центрируем кнопку после расчёта размеров панели
+            buttonPanel.Resize += (s, e) =>
+            {
+                saveButton.Location = new Point((buttonPanel.ClientSize.Width - saveButton.Width) / 2, (buttonPanel.ClientSize.Height - saveButton.Height) / 2);
+            };
+
+            viewForm.Controls.Add(viewPictureBox);
+            viewForm.Controls.Add(buttonPanel);
+            viewForm.ShowDialog(this);
+        }
 
         private int GetThumbnailWidth()
         {
